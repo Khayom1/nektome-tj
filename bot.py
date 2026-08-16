@@ -264,6 +264,52 @@ def gender_keyboard():
     ])
 
 
+def find_gender_keyboard():
+    return InlineKeyboardMarkup([
+        [
+            InlineKeyboardButton(
+                "👨 Мард",
+                callback_data="findgender:M"
+            ),
+            InlineKeyboardButton(
+                "👩 Зан",
+                callback_data="findgender:F"
+            ),
+        ],
+        [
+            InlineKeyboardButton(
+                "👥 Ҳама",
+                callback_data="findgender:ALL"
+            )
+        ],
+    ])
+
+
+def find_age_keyboard():
+    return InlineKeyboardMarkup([
+        [
+            InlineKeyboardButton(
+                "13–16",
+                callback_data="findage:MINOR"
+            ),
+            InlineKeyboardButton(
+                "17–20",
+                callback_data="findage:17_20"
+            ),
+        ],
+        [
+            InlineKeyboardButton(
+                "21–25",
+                callback_data="findage:21_25"
+            ),
+            InlineKeyboardButton(
+                "26+",
+                callback_data="findage:ADULT"
+            ),
+        ],
+    ])
+
+
 def age_keyboard():
     return InlineKeyboardMarkup([
         [
@@ -452,7 +498,7 @@ async def registration_age(update: Update, context):
     query = update.callback_query
     await query.answer()
 
-    data = query.data.replace("age:", "")
+    data = query.data.replace("findage:", "")
 
     if data == "MINOR":
         context.user_data["age_range"] = (13, 16)
@@ -524,7 +570,7 @@ async def registration_gender(update, context):
     query = update.callback_query
     await query.answer()
 
-    gender = query.data.replace("gender:", "")
+    gender = query.data.replace("findgender:", "")
 
     context.user_data["gender"] = gender
 
@@ -602,7 +648,7 @@ async def find_chat_start(update: Update, context):
         "👥 <b>Кадом ҳамсӯҳбатро меҷӯед?</b>\n\n"
         "Ҷинсро интихоб кунед:",
         parse_mode="HTML",
-        reply_markup=gender_keyboard()
+        reply_markup=find_gender_keyboard()
     )
 
 
@@ -611,13 +657,13 @@ async def find_gender(update, context):
     query = update.callback_query
     await query.answer()
 
-    gender = query.data.replace("gender:", "")
+    gender = query.data.replace("findgender:", "")
 
     context.user_data["find_gender"] = gender
 
     await query.edit_message_text(
         "🎂 Синну соли ҳамсӯҳбатро интихоб кунед:",
-        reply_markup=age_keyboard()
+        reply_markup=find_age_keyboard()
     )
 
 
@@ -626,7 +672,7 @@ async def find_age(update, context):
     query = update.callback_query
     await query.answer()
 
-    data = query.data.replace("age:", "")
+    data = query.data.replace("findage:", "")
 
     context.user_data["find_age"] = data
 
@@ -1191,14 +1237,14 @@ def main():
     app.add_handler(
         CallbackQueryHandler(
             find_gender,
-            pattern=r"^gender:"
+            pattern=r"^findgender:"
         )
     )
 
     app.add_handler(
         CallbackQueryHandler(
             find_age,
-            pattern=r"^age:"
+            pattern=r"^findage:"
         )
     )
 
