@@ -1656,6 +1656,37 @@ async def stop_search(update, context):
     )
 
 
+
+# ============================================================
+# DEDICATED STOP SEARCH BUTTON
+# ============================================================
+
+async def stop_search_button(update, context):
+
+    if not update.message:
+        return
+
+    user_id = str(update.effective_user.id)
+
+    # Remove from queue immediately.
+    waiting_users.pop(user_id, None)
+
+    # Clear temporary search state.
+    context.user_data.pop("find_gender", None)
+    context.user_data.pop("find_age", None)
+
+    logger.info(
+        "SEARCH STOPPED: user=%s waiting=%s",
+        user_id,
+        user_id in waiting_users
+    )
+
+    await update.message.reply_text(
+        "❌ <b>Ҷустуҷӯ қатъ карда шуд.</b>",
+        parse_mode="HTML",
+        reply_markup=main_keyboard()
+    )
+
 # ============================================================
 # MAIN MESSAGE ROUTER
 # ============================================================
@@ -1853,6 +1884,16 @@ def main():
 
     app.add_handler(
         CommandHandler("stop", stop_search)
+    )
+
+    # Dedicated stop-search button.
+    # Must run before registration and normal message routers.
+    app.add_handler(
+        MessageHandler(
+            filters.Regex(r"^❌ Қатъ кардани ҷустуҷӯ$"),
+            stop_search_button
+        ),
+        group=0
     )
 
     # Text
