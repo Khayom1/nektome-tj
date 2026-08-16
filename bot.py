@@ -692,6 +692,14 @@ async def find_age(update, context):
         "age": age_filter,
     }
 
+    logger.info(
+        "QUEUE ENTER: user=%s gender=%s age=%s waiting=%s",
+        tg_id,
+        gender_filter,
+        age_filter,
+        list(waiting_users.keys())
+    )
+
     await query.edit_message_text(
         "🔎 <b>Ҳамсӯҳбат ҷустуҷӯ мешавад...</b>\n\n"
         "Лутфан каме интизор шавед.",
@@ -754,13 +762,32 @@ async def try_match(user_id, context):
 
         other_pref = waiting_users[candidate]
 
+        logger.info(
+            "MATCH CHECK: %s vs %s | my=%s other=%s",
+            user_id,
+            candidate,
+            my_pref,
+            other_pref
+        )
+
         if not can_match(
             user_id,
             my_pref,
             candidate,
             other_pref
         ):
+            logger.info(
+                "MATCH REJECTED: %s vs %s",
+                user_id,
+                candidate
+            )
             continue
+
+        logger.info(
+            "MATCH FOUND: %s <-> %s",
+            user_id,
+            candidate
+        )
 
         waiting_users.pop(user_id, None)
         waiting_users.pop(candidate, None)
