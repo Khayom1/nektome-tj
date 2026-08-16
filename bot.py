@@ -874,55 +874,47 @@ async def send_match_message(user_id, partner_id, context):
 # ============================================================
 
 async def relay_chat_message(update: Update, context):
-
     if not update.message:
         return
 
     user_id = str(update.effective_user.id)
+    partner_id = active_chats.get(user_id)
 
-    if user_id not in active_chats:
+    if not partner_id:
         return
-
-    partner_id = active_chats[user_id]
 
     if is_blocked(user_id, partner_id):
         return
 
     text = update.message.text
-
     if not text:
-        await update.message.reply_text(
-            "ℹ️ Дар ин версия танҳо паёмҳои матнӣ дастгирӣ мешаванд."
-        )
+        await update.message.reply_text("ℹ️ Дар ин версия танҳо паёмҳои матнӣ дастгирӣ мешаванд.")
         return
 
     key = pair_key(user_id, partner_id)
-
     if key not in chat_logs:
         chat_logs[key] = []
 
     sender = get_user(user_id)
-
-    chat_logs[key].append(
-        {
-            "sender": sender["nektome_id"],
-            "text": text,
-            "time": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        }
-    )
+    chat_logs[key].append({
+        "sender": sender.get("nektome_id", "Unknown"),
+        "text": text,
+        "time": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    })
 
     try:
-        await context.bot.send_message(
-            partner_id,
-            text
-        )
+        await context.bot.send_message(chat_id=int(partner_id), text=text)
     except Exception as e:
-        logger.error("Send message error: %s", e)
-
-
-# ============================================================
-# LEAVE CHAT
-# ============================================================
+        logger.error(f"Relay message error to {partner_id}: {e}")
+        active_chats.pop(user_id, None)
+        active_chats.pop(partner_id, None)
+        try:
+            await update.message.reply_text(
+                "❌ Ҳамсӯҳбати шумо ботро блок кард ё чатро тарк намуд.",
+                reply_markup=main_keyboard()
+            )
+        except Exception:
+            pass
 
 async def leave_chat(update, context):
 
