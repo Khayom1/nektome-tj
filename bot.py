@@ -805,6 +805,17 @@ async def registration_gender(update, context):
 # FIND CHAT
 # ============================================================
 
+def search_inline_keyboard():
+    return InlineKeyboardMarkup([
+        [
+            InlineKeyboardButton(
+                "❌ Қатъ кардани ҷустуҷӯ",
+                callback_data="search:cancel"
+            )
+        ]
+    ])
+
+
 async def find_chat_start(update: Update, context):
 
     tg_id = str(update.effective_user.id)
