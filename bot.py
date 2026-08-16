@@ -31,6 +31,9 @@ TOKEN = os.getenv("BOT_TOKEN", "").strip()
 ADMIN_ID = os.getenv("ADMIN_ID", "").strip()
 SUPPORT_USERNAME = os.getenv("SUPPORT_USERNAME", "").strip()
 
+# Increase this number whenever the bot is updated.
+BOT_VERSION = "1.1.0"
+
 DB_FILE = "nektome.db"
 
 if not TOKEN:
@@ -103,6 +106,19 @@ CREATE TABLE IF NOT EXISTS search_preferences (
 
 """)
 
+conn.commit()
+
+
+# ============================================================
+# BOT UPDATE STATE
+# ============================================================
+
+conn.execute("""
+CREATE TABLE IF NOT EXISTS bot_meta (
+    key TEXT PRIMARY KEY,
+    value TEXT
+)
+""")
 conn.commit()
 
 # ============================================================
@@ -619,6 +635,90 @@ async def my_profile(update: Update, context: ContextTypes.DEFAULT_TYPE):
         text,
         parse_mode="HTML",
         reply_markup=main_keyboard()
+    )
+
+
+
+# ============================================================
+# BOT UPDATE NOTIFICATION
+# ============================================================
+
+async def notify_users_about_update(application):
+
+    row = db_one(
+        "SELECT value FROM bot_meta WHERE key=?",
+        ("last_notified_version",)
+    )
+
+    last_version = row["value"] if row else None
+
+    # Do not notify users on ordinary restarts.
+    if last_version == BOT_VERSION:
+        logger.info(
+            "UPDATE NOTIFICATION: already sent for version %s",
+            BOT_VERSION
+        )
+        return
+
+    users = db_all(
+        "SELECT telegram_id FROM users"
+    )
+
+    logger.info(
+        "BOT UPDATE: version=%s | users=%s",
+        BOT_VERSION,
+        len(users)
+    )
+
+    message = (
+        "🔄 <b>Nektome TJ навсозӣ шуд!</b>\n\n"
+        "✨ Бот ба версияи нав гузашт.\n\n"
+        "Барои идомаи истифода ботро аз нав оғоз кунед:\n"
+        "👉 /start"
+    )
+
+    success = 0
+    failed = 0
+
+    for row in users:
+
+        user_id = str(row["telegram_id"])
+
+        try:
+            await application.bot.send_message(
+                chat_id=user_id,
+                text=message,
+                parse_mode="HTML"
+            )
+
+            success += 1
+
+        except Exception as e:
+
+            failed += 1
+
+            logger.warning(
+                "UPDATE MESSAGE FAILED: user=%s error=%s",
+                user_id,
+                e
+            )
+
+    # Save only after notification attempt.
+    db_exec(
+        """
+        INSERT INTO bot_meta(key, value)
+        VALUES (?, ?)
+        ON CONFLICT(key)
+        DO UPDATE SET value=excluded.value
+        """,
+        ("last_notified_version", BOT_VERSION)
+    )
+
+    logger.info(
+        "UPDATE NOTIFICATION COMPLETE: version=%s success=%s failed=%s",
+        BOT_VERSION,
+        success,
+        failed
     )
 
 
@@ -1807,6 +1907,7 @@ def main():
     app = (
         ApplicationBuilder()
         .token(TOKEN)
+        .post_init(notify_users_about_update)
         .build()
     )
 
