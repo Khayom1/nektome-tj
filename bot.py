@@ -123,8 +123,6 @@ GENDER_ALL = "ALL"
 
 AGE_ALL = "ALL"
 AGE_MINOR = "MINOR"
-AGE_17_20 = "17_20"
-AGE_21_25 = "21_25"
 AGE_ADULT = "ADULT"
 
 # ============================================================
@@ -195,44 +193,25 @@ def generate_nektome_id():
 def gender_text(gender):
     if gender == GENDER_MALE:
         return "Мард"
-    if gender == GENDER_FEMALE:
-        return "Зан"
-    if gender == GENDER_ALL:
-        return "Ҳама"
-    return "Номаълум"
+    return "Зан"
 
 
 def age_filter_text(value):
     if value == AGE_MINOR:
         return "13–16"
-    if value == AGE_17_20:
-        return "17–20"
-    if value == AGE_21_25:
-        return "21–25"
     if value == AGE_ADULT:
-        return "26+"
-    if value == AGE_ALL:
-        return "Ҳама"
-    return "Номаълум"
+        return "17+"
+    return "Ҳама"
 
 
 def age_matches(age, age_filter):
     if age_filter == AGE_MINOR:
         return 13 <= age <= 16
 
-    if age_filter == AGE_17_20:
-        return 17 <= age <= 20
-
-    if age_filter == AGE_21_25:
-        return 21 <= age <= 25
-
     if age_filter == AGE_ADULT:
-        return age >= 26
+        return age >= 17
 
-    if age_filter == AGE_ALL:
-        return True
-
-    return False
+    return True
 
 
 def gender_matches(gender, wanted):
@@ -275,17 +254,6 @@ def search_keyboard():
     )
 
 
-def search_inline_keyboard():
-    return InlineKeyboardMarkup([
-        [
-            InlineKeyboardButton(
-                "❌ Қатъ кардани ҷустуҷӯ",
-                callback_data="search:cancel"
-            )
-        ]
-    ])
-
-
 def gender_keyboard():
     return InlineKeyboardMarkup([
         [
@@ -297,7 +265,13 @@ def gender_keyboard():
                 "👩 Зан",
                 callback_data="gender:F"
             ),
-        ]
+        ],
+        [
+            InlineKeyboardButton(
+                "👥 Ҳама",
+                callback_data="gender:ALL"
+            )
+        ],
     ])
 
 
@@ -343,12 +317,6 @@ def find_age_keyboard():
                 "26+",
                 callback_data="findage:ADULT"
             ),
-        ],
-        [
-            InlineKeyboardButton(
-                "👥 Ҳама",
-                callback_data="findage:ALL"
-            )
         ],
     ])
 
@@ -520,8 +488,6 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
         return
 
-    # /start resets unfinished registration/search state.
-    waiting_users.pop(tg_id, None)
     context.user_data.clear()
 
     await update.message.reply_text(
@@ -544,12 +510,6 @@ async def registration_age(update: Update, context):
     await query.answer()
 
     data = query.data.replace("age:", "")
-
-    if not context.user_data.get("registration"):
-        await query.edit_message_text(
-            "⚠️ Ин қадами регистрация дигар фаъол нест."
-        )
-        return
 
     if data == "MINOR":
         context.user_data["age_range"] = (13, 16)
@@ -628,18 +588,6 @@ async def registration_gender(update, context):
     await query.answer()
 
     gender = query.data.replace("gender:", "")
-
-    if gender not in (GENDER_MALE, GENDER_FEMALE):
-        await query.edit_message_text(
-            "❗ Интихоби ҷинс нодуруст аст."
-        )
-        return
-
-    if "age" not in context.user_data:
-        await query.edit_message_text(
-            "❗ Аввал синну солро интихоб кунед."
-        )
-        return
 
     context.user_data["gender"] = gender
 
@@ -722,9 +670,6 @@ async def find_chat_start(update: Update, context):
     context.user_data["find_gender"] = None
     context.user_data["find_age"] = None
 
-    # A new search starts a new matching session.
-    last_partners.pop(tg_id, None)
-
     await update.message.reply_text(
         "👥 <b>Кадом ҳамсӯҳбатро меҷӯед?</b>\n\n"
         "Ҷинсро интихоб кунед:",
@@ -739,16 +684,6 @@ async def find_gender(update, context):
     await query.answer()
 
     gender = query.data.replace("findgender:", "")
-
-    if gender not in (
-        GENDER_MALE,
-        GENDER_FEMALE,
-        GENDER_ALL,
-    ):
-        await query.edit_message_text(
-            "❗ Интихоби ҷинс нодуруст аст."
-        )
-        return
 
     context.user_data["find_gender"] = gender
 
@@ -765,104 +700,44 @@ async def find_age(update, context):
 
     data = query.data.replace("findage:", "")
 
-    valid_age_filters = {
-        AGE_ALL,
-        AGE_MINOR,
-        AGE_17_20,
-        AGE_21_25,
-        AGE_ADULT,
-    }
-
-    if data not in valid_age_filters:
-        await query.edit_message_text(
-            "❗ Интихоби синну сол нодуруст аст."
-        )
-        return
+    context.user_data["find_age"] = data
 
     tg_id = str(update.effective_user.id)
-
-    # A user cannot enter the queue while already chatting.
-    if tg_id in active_chats:
-        await query.edit_message_text(
-            "💬 Шумо аллакай дар чат ҳастед.",
-            reply_markup=None
-        )
-        return
 
     gender_filter = context.user_data.get(
         "find_gender",
         GENDER_ALL
     )
 
-    if gender_filter not in (
-        GENDER_MALE,
-        GENDER_FEMALE,
-        GENDER_ALL,
-    ):
-        gender_filter = GENDER_ALL
+    age_filter = data
 
     waiting_users[tg_id] = {
         "gender": gender_filter,
-        "age": data,
+        "age": age_filter,
     }
-
-    context.user_data["find_age"] = data
 
     logger.info(
         "QUEUE ENTER: user=%s gender=%s age=%s waiting=%s",
         tg_id,
         gender_filter,
-        data,
+        age_filter,
         list(waiting_users.keys())
     )
 
     await query.edit_message_text(
         "🔎 <b>Ҳамсӯҳбат ҷустуҷӯ мешавад...</b>\n\n"
-        "⏳ Лутфан каме интизор шавед.\n\n"
-        "Барои бекор кардан тугмаи поёнро пахш кунед.",
-        parse_mode="HTML",
-        reply_markup=search_inline_keyboard()
+        "Лутфан каме интизор шавед.",
+        parse_mode="HTML"
+    )
+
+    await context.bot.send_message(
+        chat_id=tg_id,
+        text="⏳ Шумо ба навбати ҷустуҷӯ дохил шудед.\n"
+             "Барои қатъ кардан тугмаи поёнро пахш кунед.",
+        reply_markup=search_keyboard()
     )
 
     await try_match(tg_id, context)
-
-
-# ============================================================
-# SEARCH CALLBACK
-# ============================================================
-
-async def search_callback(update, context):
-
-    query = update.callback_query
-    await query.answer()
-
-    user_id = str(update.effective_user.id)
-
-    if query.data == "search:cancel":
-
-        removed = waiting_users.pop(user_id, None)
-
-        if removed is None:
-            await query.edit_message_text(
-                "ℹ️ Шумо дигар дар ҷустуҷӯ нестед."
-            )
-            return
-
-        await query.edit_message_text(
-            "❌ <b>Ҷустуҷӯ қатъ карда шуд.</b>",
-            parse_mode="HTML"
-        )
-
-        await context.bot.send_message(
-            chat_id=user_id,
-            text="🏠 Менюи асосӣ",
-            reply_markup=main_keyboard()
-        )
-
-        logger.info(
-            "QUEUE CANCEL: user=%s",
-            user_id
-        )
 
 
 # ============================================================
@@ -871,114 +746,28 @@ async def search_callback(update, context):
 
 def can_match(user_a, pref_a, user_b, pref_b):
 
-    # --------------------------------------------------------
-    # BASIC VALIDATION
-    # --------------------------------------------------------
-
-    if not user_a or not user_b:
+    if user_a == user_b:
         return False
 
-    if str(user_a) == str(user_b):
+    if is_blocked(user_a, user_b):
         return False
 
-    # --------------------------------------------------------
-    # LOAD BOTH PROFILES ONCE
-    # --------------------------------------------------------
+    a_gender = get_user(user_a)["gender"]
+    b_gender = get_user(user_b)["gender"]
 
-    profile_a = get_user(str(user_a))
-    profile_b = get_user(str(user_b))
+    a_age = get_user(user_a)["age"]
+    b_age = get_user(user_b)["age"]
 
-    # A queue entry without a real profile is invalid.
-    if profile_a is None or profile_b is None:
-        logger.error(
-            "MATCH PROFILE MISSING: A=%s exists=%s | B=%s exists=%s",
-            user_a,
-            profile_a is not None,
-            user_b,
-            profile_b is not None,
-        )
+    if not gender_matches(b_gender, pref_a["gender"]):
         return False
 
-    # --------------------------------------------------------
-    # BLOCK / ACTIVE CHAT CHECKS
-    # --------------------------------------------------------
-
-    if is_blocked(str(user_a), str(user_b)):
+    if not gender_matches(a_gender, pref_b["gender"]):
         return False
 
-    if str(user_a) in active_chats:
+    if not age_matches(b_age, pref_a["age"]):
         return False
 
-    if str(user_b) in active_chats:
-        return False
-
-    # --------------------------------------------------------
-    # VALIDATE PREFERENCES
-    # --------------------------------------------------------
-
-    if not isinstance(pref_a, dict) or not isinstance(pref_b, dict):
-        return False
-
-    wanted_gender_a = pref_a.get("gender", GENDER_ALL)
-    wanted_gender_b = pref_b.get("gender", GENDER_ALL)
-
-    wanted_age_a = pref_a.get("age", AGE_ALL)
-    wanted_age_b = pref_b.get("age", AGE_ALL)
-
-    valid_genders = {
-        GENDER_MALE,
-        GENDER_FEMALE,
-        GENDER_ALL,
-    }
-
-    valid_ages = {
-        AGE_ALL,
-        AGE_MINOR,
-        AGE_17_20,
-        AGE_21_25,
-        AGE_ADULT,
-    }
-
-    if wanted_gender_a not in valid_genders:
-        return False
-
-    if wanted_gender_b not in valid_genders:
-        return False
-
-    if wanted_age_a not in valid_ages:
-        return False
-
-    if wanted_age_b not in valid_ages:
-        return False
-
-    # --------------------------------------------------------
-    # MUTUAL GENDER + AGE MATCH
-    # --------------------------------------------------------
-
-    # A must accept B.
-    if not gender_matches(
-        profile_b["gender"],
-        wanted_gender_a
-    ):
-        return False
-
-    if not age_matches(
-        profile_b["age"],
-        wanted_age_a
-    ):
-        return False
-
-    # B must accept A.
-    if not gender_matches(
-        profile_a["gender"],
-        wanted_gender_b
-    ):
-        return False
-
-    if not age_matches(
-        profile_a["age"],
-        wanted_age_b
-    ):
+    if not age_matches(a_age, pref_b["age"]):
         return False
 
     return True
@@ -987,35 +776,9 @@ def can_match(user_a, pref_a, user_b, pref_b):
 async def try_match(user_id, context):
 
     if user_id not in waiting_users:
-        logger.info(
-            "MATCH SKIP: user=%s not in queue",
-            user_id
-        )
-        return False
+        return
 
-    if user_id in active_chats:
-        waiting_users.pop(user_id, None)
-        logger.warning(
-            "MATCH CLEANUP: user=%s was already in active chat",
-            user_id
-        )
-        return False
-
-    my_pref = waiting_users.get(user_id)
-
-    if not my_pref:
-        waiting_users.pop(user_id, None)
-        logger.warning(
-            "MATCH CLEANUP: user=%s has empty preferences",
-            user_id
-        )
-        return False
-
-    logger.info(
-        "MATCH START: user=%s queue=%s",
-        user_id,
-        dict(waiting_users)
-    )
+    my_pref = waiting_users[user_id]
 
     candidates = list(waiting_users.keys())
     random.shuffle(candidates)
@@ -1028,11 +791,15 @@ async def try_match(user_id, context):
         if candidate not in waiting_users:
             continue
 
-        if candidate in active_chats:
-            waiting_users.pop(candidate, None)
-            continue
+        other_pref = waiting_users[candidate]
 
-        other_pref = waiting_users.get(candidate)
+        logger.info(
+            "MATCH CHECK: %s vs %s | my=%s other=%s",
+            user_id,
+            candidate,
+            my_pref,
+            other_pref
+        )
 
         if not can_match(
             user_id,
@@ -1040,17 +807,18 @@ async def try_match(user_id, context):
             candidate,
             other_pref
         ):
+            logger.info(
+                "MATCH REJECTED: %s vs %s",
+                user_id,
+                candidate
+            )
             continue
 
-        # Final atomic-style validation before pairing.
-        if user_id not in waiting_users:
-            return False
-
-        if candidate not in waiting_users:
-            continue
-
-        if user_id in active_chats or candidate in active_chats:
-            continue
+        logger.info(
+            "MATCH FOUND: %s <-> %s",
+            user_id,
+            candidate
+        )
 
         waiting_users.pop(user_id, None)
         waiting_users.pop(candidate, None)
@@ -1059,51 +827,22 @@ async def try_match(user_id, context):
         active_chats[candidate] = user_id
 
         key = pair_key(user_id, candidate)
+
         chat_logs[key] = []
 
-        logger.info(
-            "MATCH SUCCESS: %s <-> %s | active_chats=%s | queue=%s",
+        await send_match_message(
             user_id,
             candidate,
-            active_chats,
-            waiting_users
+            context
         )
 
-        try:
-            await send_match_message(
-                user_id,
-                candidate,
-                context
-            )
+        await send_match_message(
+            candidate,
+            user_id,
+            context
+        )
 
-            await send_match_message(
-                candidate,
-                user_id,
-                context
-            )
-
-            logger.info(
-                "MATCH NOTIFICATIONS SENT: %s <-> %s",
-                user_id,
-                candidate
-            )
-
-        except Exception:
-            logger.exception(
-                "MATCH NOTIFICATION FAILED: %s <-> %s",
-                user_id,
-                candidate
-            )
-
-        return True
-
-    logger.info(
-        "MATCH NOT FOUND: user=%s queue=%s",
-        user_id,
-        dict(waiting_users)
-    )
-
-    return False
+        return
 
 
 async def send_match_message(user_id, partner_id, context):
@@ -1286,8 +1025,6 @@ async def rating_callback(update, context):
         )
     )
 
-    last_partners.pop(user_id, None)
-
     await query.edit_message_text(
         "✅ Баҳо қабул шуд."
     )
@@ -1407,185 +1144,6 @@ async def create_report(reporter, reported, context):
 
     # After report, temporary transcript is deleted.
     chat_logs.pop(key, None)
-
-
-# ============================================================
-# ADMIN REPORT ACTIONS
-# ============================================================
-
-async def admin_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
-
-    query = update.callback_query
-    await query.answer()
-
-    admin_id = str(update.effective_user.id)
-
-    # Only configured admin may use these buttons.
-    if not ADMIN_ID or admin_id != ADMIN_ID:
-        await query.answer(
-            "🚫 Дастрасӣ манъ аст.",
-            show_alert=True
-        )
-        return
-
-    data = query.data
-
-    # --------------------------------------------------------
-    # REJECT REPORT
-    # --------------------------------------------------------
-
-    if data.startswith("admin:reject:"):
-
-        try:
-            report_id = int(data.split(":")[2])
-        except (ValueError, IndexError):
-            await query.edit_message_caption(
-                caption="❌ Report ID нодуруст аст."
-            )
-            return
-
-        report = db_one(
-            "SELECT * FROM reports WHERE id=?",
-            (report_id,)
-        )
-
-        if not report:
-            await query.edit_message_caption(
-                caption="❌ Report ёфт нашуд."
-            )
-            return
-
-        db_exec(
-            """
-            UPDATE reports
-            SET status='rejected'
-            WHERE id=?
-            """,
-            (report_id,)
-        )
-
-        await query.edit_message_caption(
-            caption=(
-                "✅ <b>REPORT REJECTED</b>\n\n"
-                f"Report ID: <code>{report_id}</code>\n"
-                "Статус: rejected"
-            ),
-            parse_mode="HTML"
-        )
-
-        return
-
-    # --------------------------------------------------------
-    # BLOCK USER
-    # --------------------------------------------------------
-
-    if data.startswith("admin:block:"):
-
-        try:
-            blocked_user = data.split(":")[2]
-        except IndexError:
-            await query.edit_message_caption(
-                caption="❌ User ID нодуруст аст."
-            )
-            return
-
-        user = get_user(blocked_user)
-
-        if not user:
-            await query.edit_message_caption(
-                caption="❌ Корбар ёфт нашуд."
-            )
-            return
-
-        # Do not allow blocking the configured admin.
-        if blocked_user == ADMIN_ID:
-            await query.answer(
-                "🚫 Admin-ро block кардан мумкин нест.",
-                show_alert=True
-            )
-            return
-
-        # Add permanent block.
-        db_exec(
-            """
-            INSERT OR IGNORE INTO blocks(blocker, blocked)
-            VALUES (?, ?)
-            """,
-            (ADMIN_ID, blocked_user)
-        )
-
-        # Mark all pending reports concerning this user as handled.
-        db_exec(
-            """
-            UPDATE reports
-            SET status='blocked'
-            WHERE reported=?
-              AND status='pending'
-            """,
-            (blocked_user,)
-        )
-
-        # Remove from matchmaking queue.
-        waiting_users.pop(blocked_user, None)
-
-        # Close active chat if one exists.
-        partner_id = active_chats.pop(blocked_user, None)
-
-        if partner_id:
-            active_chats.pop(partner_id, None)
-
-            last_partners[blocked_user] = partner_id
-            last_partners[partner_id] = blocked_user
-
-            try:
-                await context.bot.send_message(
-                    partner_id,
-                    "❌ Чат бо сабаби вайрон шудани қоидаҳо баста шуд.",
-                    reply_markup=main_keyboard()
-                )
-            except Exception as e:
-                logger.warning(
-                    "Could not notify partner after admin block: %s",
-                    e
-                )
-
-        # Remove old partner state.
-        last_partners.pop(blocked_user, None)
-
-        # Notify blocked user.
-        try:
-            await context.bot.send_message(
-                blocked_user,
-                "🚫 <b>Шумо аз Nektome TJ блок шудед.</b>\n\n"
-                "Сабаб: вайрон кардани қоидаҳои хизматрасонӣ.\n\n"
-                "Агар фикр мекунед, ки ин қарор хато аст, "
-                "ба техподдержка муроҷиат кунед.",
-                parse_mode="HTML",
-                reply_markup=support_keyboard()
-            )
-        except Exception as e:
-            logger.warning(
-                "Could not notify blocked user: %s",
-                e
-            )
-
-        await query.edit_message_caption(
-            caption=(
-                "🚫 <b>USER BLOCKED</b>\n\n"
-                f"Report user: <code>{user['nektome_id']}</code>\n"
-                f"Telegram ID: <code>{blocked_user}</code>\n"
-                "Статус: blocked"
-            ),
-            parse_mode="HTML"
-        )
-
-        return
-
-    await query.answer(
-        "❓ Амалиёт номаълум аст.",
-        show_alert=True
-    )
-
 
 
 # ============================================================
@@ -1760,13 +1318,6 @@ def main():
     # Finding
     app.add_handler(
         CallbackQueryHandler(
-            search_callback,
-            pattern=r"^search:"
-        )
-    )
-
-    app.add_handler(
-        CallbackQueryHandler(
             find_gender,
             pattern=r"^findgender:"
         )
@@ -1776,14 +1327,6 @@ def main():
         CallbackQueryHandler(
             find_age,
             pattern=r"^findage:"
-        )
-    )
-
-    # Admin report actions
-    app.add_handler(
-        CallbackQueryHandler(
-            admin_callback,
-            pattern=r"^admin:(block|reject):"
         )
     )
 
