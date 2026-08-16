@@ -93,6 +93,14 @@ ON blocks(blocker);
 
 CREATE INDEX IF NOT EXISTS idx_blocks_blocked
 ON blocks(blocked);
+
+CREATE TABLE IF NOT EXISTS search_preferences (
+    telegram_id TEXT PRIMARY KEY,
+    gender TEXT NOT NULL DEFAULT 'ALL',
+    age_filter TEXT NOT NULL DEFAULT 'ALL',
+    updated_at TEXT NOT NULL
+);
+
 """)
 
 conn.commit()
@@ -222,14 +230,170 @@ def pair_key(a, b):
     return ":".join(sorted([str(a), str(b)]))
 
 
+
+# ============================================================
+# SAVED SEARCH SETTINGS
+# ============================================================
+
+def get_saved_search(user_id):
+    row = db_one(
+        """
+        SELECT gender, age_filter
+        FROM search_preferences
+        WHERE telegram_id=?
+        """,
+        (str(user_id),)
+    )
+
+    if not row:
+        return {
+            "gender": GENDER_ALL,
+            "age": AGE_ALL
+        }
+
+    return {
+        "gender": row["gender"],
+        "age": row["age_filter"]
+    }
+
+
+def save_search_settings(user_id, gender, age_filter):
+    db_exec(
+        """
+        INSERT INTO search_preferences(
+            telegram_id,
+            gender,
+            age_filter,
+            updated_at
+        )
+        VALUES (?, ?, ?, ?)
+        ON CONFLICT(telegram_id)
+        DO UPDATE SET
+            gender=excluded.gender,
+            age_filter=excluded.age_filter,
+            updated_at=excluded.updated_at
+        """,
+        (
+            str(user_id),
+            gender,
+            age_filter,
+            datetime.utcnow().isoformat()
+        )
+    )
+
+
 # ============================================================
 # KEYBOARDS
 # ============================================================
+
+
+def settings_keyboard():
+    return InlineKeyboardMarkup([
+        [
+            InlineKeyboardButton(
+                "🔎 Тағйири ҷустуҷӯ",
+                callback_data="settings:search"
+            )
+        ],
+        [
+            InlineKeyboardButton(
+                "👤 Тағйири профил",
+                callback_data="settings:profile"
+            )
+        ],
+        [
+            InlineKeyboardButton(
+                "⬅️ Бозгашт",
+                callback_data="settings:back"
+            )
+        ]
+    ])
+
+
+def settings_search_gender_keyboard():
+    return InlineKeyboardMarkup([
+        [
+            InlineKeyboardButton(
+                "👨 Мард",
+                callback_data="settingsgender:M"
+            ),
+            InlineKeyboardButton(
+                "👩 Зан",
+                callback_data="settingsgender:F"
+            )
+        ],
+        [
+            InlineKeyboardButton(
+                "👥 Ҳама",
+                callback_data="settingsgender:ALL"
+            )
+        ],
+        [
+            InlineKeyboardButton(
+                "⬅️ Бозгашт",
+                callback_data="settings:open"
+            )
+        ]
+    ])
+
+
+def settings_search_age_keyboard():
+    return InlineKeyboardMarkup([
+        [
+            InlineKeyboardButton(
+                "13–16",
+                callback_data="settingsage:MINOR"
+            ),
+            InlineKeyboardButton(
+                "17–20",
+                callback_data="settingsage:17_20"
+            )
+        ],
+        [
+            InlineKeyboardButton(
+                "21–25",
+                callback_data="settingsage:21_25"
+            ),
+            InlineKeyboardButton(
+                "26+",
+                callback_data="settingsage:ADULT"
+            )
+        ],
+        [
+            InlineKeyboardButton(
+                "👥 Ҳама",
+                callback_data="settingsage:ALL"
+            )
+        ],
+        [
+            InlineKeyboardButton(
+                "⬅️ Бозгашт",
+                callback_data="settings:open"
+            )
+        ]
+    ])
+
+
+def settings_profile_gender_keyboard():
+    return InlineKeyboardMarkup([
+        [
+            InlineKeyboardButton(
+                "👨 Мард",
+                callback_data="profilegender:M"
+            ),
+            InlineKeyboardButton(
+                "👩 Зан",
+                callback_data="profilegender:F"
+            )
+        ]
+    ])
+
 
 def main_keyboard():
     return ReplyKeyboardMarkup(
         [
             ["👤 Профили ман", "👥 Ёфтани ҳамсӯҳбат"],
+            ["⚙️ Танзимот"],
             ["🛠 Техподдержка"],
         ],
         resize_keyboard=True
@@ -660,22 +824,58 @@ async def find_chat_start(update: Update, context):
 
     if tg_id in waiting_users:
         await update.message.reply_text(
-            "🔎 Шумо аллакай дар ҷустуҷӯи ҳамсӯҳбат ҳастед.\n\n"
-            "Каме интизор шавед...\n\n"
+            "🔎 Шумо аллакай дар ҷустуҷӯ ҳастед.\n\n"
             "Барои бекор кардан тугмаи поёнро пахш кунед.",
-            reply_markup=search_keyboard()
+            reply_markup=search_inline_keyboard()
         )
         return
 
-    context.user_data["find_gender"] = None
-    context.user_data["find_age"] = None
+    pref = get_saved_search(tg_id)
+
+    # If no preference exists yet, keep ALL / ALL as the default.
+    if not db_one(
+        "SELECT 1 FROM search_preferences WHERE telegram_id=?",
+        (tg_id,)
+    ):
+        save_search_settings(
+            tg_id,
+            GENDER_ALL,
+            AGE_ALL
+        )
+        pref = {
+            "gender": GENDER_ALL,
+            "age": AGE_ALL
+        }
+
+    gender_filter = pref["gender"]
+    age_filter = pref["age"]
+
+    waiting_users[tg_id] = {
+        "gender": gender_filter,
+        "age": age_filter
+    }
+
+    context.user_data["find_gender"] = gender_filter
+    context.user_data["find_age"] = age_filter
+
+    logger.info(
+        "QUEUE ENTER SAVED: user=%s gender=%s age=%s waiting=%s",
+        tg_id,
+        gender_filter,
+        age_filter,
+        list(waiting_users.keys())
+    )
 
     await update.message.reply_text(
-        "👥 <b>Кадом ҳамсӯҳбатро меҷӯед?</b>\n\n"
-        "Ҷинсро интихоб кунед:",
+        "🔎 <b>Ҳамсӯҳбат ҷустуҷӯ мешавад...</b>\n\n"
+        f"👤 Ҷинс: {gender_text(gender_filter)}\n"
+        f"🎂 Синну сол: {age_filter_text(age_filter)}\n\n"
+        "⏳ Лутфан каме интизор шавед.",
         parse_mode="HTML",
-        reply_markup=find_gender_keyboard()
+        reply_markup=search_inline_keyboard()
     )
+
+    await try_match(tg_id, context)
 
 
 async def find_gender(update, context):
@@ -955,6 +1155,14 @@ async def leave_chat(update, context):
         reply_markup=rating_keyboard()
     )
 
+    # Replace the old chat keyboard with the main menu.
+    await update.message.reply_text(
+        "🏠 <b>Менюи асосӣ</b>\n\n"
+        "Барои оғоз «👥 Ёфтани ҳамсӯҳбат»-ро пахш кунед.",
+        parse_mode="HTML",
+        reply_markup=main_keyboard()
+    )
+
 
 # ============================================================
 # RATING CALLBACK
@@ -1138,6 +1346,258 @@ async def create_report(reporter, reported, context):
     chat_logs.pop(key, None)
 
 
+
+# ============================================================
+# SETTINGS
+# ============================================================
+
+async def settings_menu(update, context):
+
+    user_id = str(update.effective_user.id)
+    user = get_user(user_id)
+
+    if not user:
+        await update.message.reply_text(
+            "❗ Аввал /start кунед."
+        )
+        return
+
+    pref = get_saved_search(user_id)
+
+    await update.message.reply_text(
+        "⚙️ <b>Танзимот</b>\n\n"
+        "👤 <b>Профили ман</b>\n"
+        f"• Ҷинс: {gender_text(user['gender'])}\n"
+        f"• Синну сол: {user['age']}\n\n"
+        "🔎 <b>Ҷустуҷӯ</b>\n"
+        f"• Ҷинс: {gender_text(pref['gender'])}\n"
+        f"• Синну сол: {age_filter_text(pref['age'])}",
+        parse_mode="HTML",
+        reply_markup=settings_keyboard()
+    )
+
+
+async def settings_callback(update, context):
+
+    query = update.callback_query
+    await query.answer()
+
+    user_id = str(update.effective_user.id)
+    data = query.data
+
+    if data == "settings:open":
+
+        user = get_user(user_id)
+
+        if not user:
+            await query.edit_message_text(
+                "❗ Аввал /start кунед."
+            )
+            return
+
+        pref = get_saved_search(user_id)
+
+        await query.edit_message_text(
+            "⚙️ <b>Танзимот</b>\n\n"
+            "👤 <b>Профили ман</b>\n"
+            f"• Ҷинс: {gender_text(user['gender'])}\n"
+            f"• Синну сол: {user['age']}\n\n"
+            "🔎 <b>Ҷустуҷӯ</b>\n"
+            f"• Ҷинс: {gender_text(pref['gender'])}\n"
+            f"• Синну сол: {age_filter_text(pref['age'])}",
+            parse_mode="HTML",
+            reply_markup=settings_keyboard()
+        )
+        return
+
+    if data == "settings:back":
+
+        await query.edit_message_text(
+            "🏠 <b>Менюи асосӣ</b>\n\n"
+            "Барои идома тугмаҳои менюро истифода баред.",
+            parse_mode="HTML"
+        )
+
+        await context.bot.send_message(
+            user_id,
+            "🏠 Менюи асосӣ",
+            reply_markup=main_keyboard()
+        )
+        return
+
+    if data == "settings:search":
+
+        await query.edit_message_text(
+            "🔎 <b>Тағйири ҷустуҷӯ</b>\n\n"
+            "Ҷинси ҳамсӯҳбатро интихоб кунед:",
+            parse_mode="HTML",
+            reply_markup=settings_search_gender_keyboard()
+        )
+        return
+
+    if data == "settings:profile":
+
+        context.user_data["settings_profile"] = True
+
+        await query.edit_message_text(
+            "👤 <b>Тағйири профил</b>\n\n"
+            "Синну соли нави худро нависед.\n\n"
+            "Масалан: <code>20</code>",
+            parse_mode="HTML"
+        )
+        return
+
+
+async def settings_gender_callback(update, context):
+
+    query = update.callback_query
+    await query.answer()
+
+    user_id = str(update.effective_user.id)
+    gender = query.data.replace("settingsgender:", "")
+
+    if gender not in (
+        GENDER_MALE,
+        GENDER_FEMALE,
+        GENDER_ALL
+    ):
+        await query.edit_message_text(
+            "❌ Интихоби ҷинс нодуруст аст."
+        )
+        return
+
+    context.user_data["settings_search_gender"] = gender
+
+    await query.edit_message_text(
+        "🎂 <b>Синну соли ҳамсӯҳбатро интихоб кунед:</b>",
+        parse_mode="HTML",
+        reply_markup=settings_search_age_keyboard()
+    )
+
+
+async def settings_age_callback(update, context):
+
+    query = update.callback_query
+    await query.answer()
+
+    user_id = str(update.effective_user.id)
+    age_filter = query.data.replace("settingsage:", "")
+
+    valid = {
+        AGE_ALL,
+        AGE_MINOR,
+        AGE_17_20,
+        AGE_21_25,
+        AGE_ADULT
+    }
+
+    if age_filter not in valid:
+        await query.edit_message_text(
+            "❌ Интихоби синну сол нодуруст аст."
+        )
+        return
+
+    gender = context.user_data.get(
+        "settings_search_gender",
+        get_saved_search(user_id)["gender"]
+    )
+
+    save_search_settings(
+        user_id,
+        gender,
+        age_filter
+    )
+
+    context.user_data.pop("settings_search_gender", None)
+
+    await query.edit_message_text(
+        "✅ <b>Ҷустуҷӯ тағйир ёфт.</b>\n\n"
+        f"👤 Ҷинс: {gender_text(gender)}\n"
+        f"🎂 Синну сол: {age_filter_text(age_filter)}\n\n"
+        "Ин параметрҳо то тағйири навбатӣ нигоҳ дошта мешаванд.",
+        parse_mode="HTML",
+        reply_markup=settings_keyboard()
+    )
+
+
+async def settings_profile_age_text(update, context):
+
+    if not context.user_data.get("settings_profile"):
+        return False
+
+    text = update.message.text.strip()
+
+    if not text.isdigit():
+        await update.message.reply_text(
+            "❗ Синну сол бояд рақам бошад."
+        )
+        return True
+
+    age = int(text)
+
+    if age < 13 or age > 100:
+        await update.message.reply_text(
+            "❗ Синну сол бояд аз 13 то 100 бошад."
+        )
+        return True
+
+    context.user_data["settings_profile_age"] = age
+    context.user_data.pop("settings_profile", None)
+
+    await update.message.reply_text(
+        "🚻 <b>Ҷинси нави худро интихоб кунед:</b>",
+        parse_mode="HTML",
+        reply_markup=settings_profile_gender_keyboard()
+    )
+
+    return True
+
+
+async def settings_profile_gender_callback(update, context):
+
+    query = update.callback_query
+    await query.answer()
+
+    user_id = str(update.effective_user.id)
+    gender = query.data.replace("profilegender:", "")
+
+    if gender not in (
+        GENDER_MALE,
+        GENDER_FEMALE
+    ):
+        await query.edit_message_text(
+            "❌ Ҷинс нодуруст аст."
+        )
+        return
+
+    age = context.user_data.get("settings_profile_age")
+
+    if age is None:
+        await query.edit_message_text(
+            "❗ Аввал синну солро интихоб кунед."
+        )
+        return
+
+    db_exec(
+        """
+        UPDATE users
+        SET age=?, gender=?
+        WHERE telegram_id=?
+        """,
+        (age, gender, user_id)
+    )
+
+    context.user_data.pop("settings_profile_age", None)
+
+    await query.edit_message_text(
+        "✅ <b>Профил нав карда шуд.</b>\n\n"
+        f"🎂 Синну сол: {age}\n"
+        f"🚻 Ҷинс: {gender_text(gender)}",
+        parse_mode="HTML",
+        reply_markup=settings_keyboard()
+    )
+
+
 # ============================================================
 # SUPPORT
 # ============================================================
@@ -1189,6 +1649,18 @@ async def stop_search(update, context):
 # MAIN MESSAGE ROUTER
 # ============================================================
 
+
+async def settings_text_router(update, context):
+
+    if not update.message:
+        return
+
+    handled = await settings_profile_age_text(update, context)
+
+    if handled:
+        return
+
+
 async def message_router(update, context):
 
     if not update.message:
@@ -1227,6 +1699,10 @@ async def message_router(update, context):
 
     if text == "👥 Ёфтани ҳамсӯҳбат":
         await find_chat_start(update, context)
+        return
+
+    if text == "⚙️ Танзимот":
+        await settings_menu(update, context)
         return
 
     if text == "🛠 Техподдержка":
@@ -1290,6 +1766,35 @@ def main():
         ApplicationBuilder()
         .token(TOKEN)
         .build()
+    )
+
+    # Settings callbacks
+    app.add_handler(
+        CallbackQueryHandler(
+            settings_callback,
+            pattern=r"^settings:"
+        )
+    )
+
+    app.add_handler(
+        CallbackQueryHandler(
+            settings_gender_callback,
+            pattern=r"^settingsgender:"
+        )
+    )
+
+    app.add_handler(
+        CallbackQueryHandler(
+            settings_age_callback,
+            pattern=r"^settingsage:"
+        )
+    )
+
+    app.add_handler(
+        CallbackQueryHandler(
+            settings_profile_gender_callback,
+            pattern=r"^profilegender:"
+        )
     )
 
     # Registration
