@@ -245,6 +245,15 @@ def chat_keyboard():
     )
 
 
+def search_keyboard():
+    return ReplyKeyboardMarkup(
+        [
+            ["❌ Қатъ кардани ҷустуҷӯ"],
+        ],
+        resize_keyboard=True
+    )
+
+
 def gender_keyboard():
     return InlineKeyboardMarkup([
         [
@@ -500,7 +509,7 @@ async def registration_age(update: Update, context):
     query = update.callback_query
     await query.answer()
 
-    data = query.data.replace("findage:", "")
+    data = query.data.replace("age:", "")
 
     if data == "MINOR":
         context.user_data["age_range"] = (13, 16)
@@ -557,8 +566,14 @@ async def registration_age_text(update, context):
 
     context.user_data["age"] = age
 
+    # Age was accepted. Do not treat following menu text as age.
+    context.user_data["registration_age_range"] = False
+
     await update.message.reply_text(
-        "🚻 Ҷинси худро интихоб кунед:",
+        "✅ <b>Синну сол қабул шуд!</b>\n\n"
+        f"🎂 Синну соли шумо: <b>{age}</b>\n\n"
+        "🚻 Акнун ҷинси худро интихоб кунед:",
+        parse_mode="HTML",
         reply_markup=gender_keyboard()
     )
 
@@ -572,7 +587,7 @@ async def registration_gender(update, context):
     query = update.callback_query
     await query.answer()
 
-    gender = query.data.replace("findgender:", "")
+    gender = query.data.replace("gender:", "")
 
     context.user_data["gender"] = gender
 
@@ -602,15 +617,22 @@ async def registration_gender(update, context):
     context.user_data.clear()
 
     await query.edit_message_text(
-        "✅ <b>Профил сохта шуд!</b>\n\n"
+        "🎉 <b>Табрик! Профили шумо бомуваффақият сохта шуд.</b>\n\n"
         f"🆔 ID-и шумо: <code>{nektome_id}</code>\n\n"
-        "Ин ID-ро метавонед ба дигарон диҳед.",
+        "📜 <b>Қоидаҳои Nektome TJ:</b>\n"
+        "• 🤝 Ба ҳамсӯҳбат эҳтиром гузоред.\n"
+        "• 🚫 Таҳқир, таҳдид ва спам манъ аст.\n"
+        "• 🔐 Маълумоти шахсии худро ба шахси ношинос нафиристед.\n"
+        "• 🚨 Барои вайрон кардани қоидаҳо аз Репорт истифода баред.\n\n"
+        "✨ Акнун метавонед ҳамсӯҳбати нав пайдо кунед!",
         parse_mode="HTML"
     )
 
     await context.bot.send_message(
         tg_id,
-        "Менюи асосӣ:",
+        "🏠 <b>Менюи асосӣ</b>\n\n"
+        "Барои оғоз «👥 Ёфтани ҳамсӯҳбат»-ро пахш кунед.",
+        parse_mode="HTML",
         reply_markup=main_keyboard()
     )
 
@@ -639,7 +661,9 @@ async def find_chat_start(update: Update, context):
     if tg_id in waiting_users:
         await update.message.reply_text(
             "🔎 Шумо аллакай дар ҷустуҷӯи ҳамсӯҳбат ҳастед.\n\n"
-            "Каме интизор шавед..."
+            "Каме интизор шавед...\n\n"
+            "Барои бекор кардан тугмаи поёнро пахш кунед.",
+            reply_markup=search_keyboard()
         )
         return
 
@@ -704,6 +728,13 @@ async def find_age(update, context):
         "🔎 <b>Ҳамсӯҳбат ҷустуҷӯ мешавад...</b>\n\n"
         "Лутфан каме интизор шавед.",
         parse_mode="HTML"
+    )
+
+    await context.bot.send_message(
+        chat_id=tg_id,
+        text="⏳ Шумо ба навбати ҷустуҷӯ дохил шудед.\n"
+             "Барои қатъ кардан тугмаи поёнро пахш кунед.",
+        reply_markup=search_keyboard()
     )
 
     await try_match(tg_id, context)
@@ -1181,7 +1212,12 @@ async def message_router(update, context):
         )
         return
 
-    text = update.message.text or ""
+    text = (update.message.text or "").strip()
+
+    # Stop-search must work immediately while user is in queue.
+    if text == "❌ Қатъ кардани ҷустуҷӯ":
+        await stop_search(update, context)
+        return
 
     # Chat messages have priority
     if user_id in active_chats:
@@ -1205,15 +1241,12 @@ async def message_router(update, context):
         await support(update, context)
         return
 
-    if text == "❌ Қатъ кардани ҷустуҷӯ":
-        await stop_search(update, context)
-        return
-
     if user_id in waiting_users:
 
         await update.message.reply_text(
-            "🔎 Ҳоло ҳамсӯҳбат ҷустуҷӯ мешавад...\n\n"
-            "Лутфан интизор шавед."
+            "🔎 Шумо ҳоло дар ҷустуҷӯ ҳастед.\n\n"
+            "Барои бекор кардан «❌ Қатъ кардани ҷустуҷӯ»-ро пахш кунед.",
+            reply_markup=search_keyboard()
         )
         return
 
