@@ -3,6 +3,8 @@ import sqlite3
 import logging
 import random
 import string
+import threading
+from http.server import BaseHTTPRequestHandler, HTTPServer
 from datetime import datetime
 
 from telegram import (
@@ -1205,6 +1207,26 @@ async def error_handler(update, context):
 # MAIN
 # ============================================================
 
+
+class HealthHandler(BaseHTTPRequestHandler):
+
+    def do_GET(self):
+        self.send_response(200)
+        self.send_header("Content-Type", "text/plain; charset=utf-8")
+        self.end_headers()
+        self.wfile.write(b"Nektome TJ is running")
+
+    def log_message(self, format, *args):
+        pass
+
+
+def start_health_server():
+    port = int(os.environ.get("PORT", "10000"))
+    server = HTTPServer(("0.0.0.0", port), HealthHandler)
+    print(f"🌐 Health server listening on port {port}")
+    server.serve_forever()
+
+
 def main():
 
     print("=" * 40)
@@ -1285,6 +1307,11 @@ def main():
     app.add_error_handler(error_handler)
 
     print("🤖 BOT RUNNING")
+
+    threading.Thread(
+        target=start_health_server,
+        daemon=True
+    ).start()
 
     app.run_polling(
         allowed_updates=Update.ALL_TYPES
