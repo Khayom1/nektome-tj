@@ -1213,8 +1213,27 @@ async def relay_chat_message(update: Update, context):
         "time": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     })
 
+    logger.info(
+        "CHAT RELAY: user=%s -> partner=%s | text=%r | active_chats=%s",
+        user_id,
+        partner_id,
+        text,
+        active_chats
+    )
+
     try:
-        await context.bot.send_message(chat_id=int(partner_id), text=text)
+        result = await context.bot.send_message(
+            chat_id=int(partner_id),
+            text=text
+        )
+
+        logger.info(
+            "CHAT RELAY SUCCESS: user=%s -> partner=%s message_id=%s",
+            user_id,
+            partner_id,
+            result.message_id
+        )
+
     except Exception as e:
         logger.error(f"Relay message error to {partner_id}: {e}")
         active_chats.pop(user_id, None)
