@@ -1208,7 +1208,7 @@ async def relay_chat_message(update: Update, context):
 
     sender = get_user(user_id)
     chat_logs[key].append({
-        "sender": sender.get("nektome_id", "Unknown"),
+        "sender": sender["nektome_id"] if sender else "Unknown",
         "text": text,
         "time": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     })
