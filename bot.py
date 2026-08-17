@@ -8,6 +8,7 @@ from http.server import BaseHTTPRequestHandler, HTTPServer
 from datetime import datetime
 
 from telegram import (
+    Bot,
     Update,
     InlineKeyboardButton,
     InlineKeyboardMarkup,
@@ -28,7 +29,8 @@ from telegram.ext import (
 # ============================================================
 
 TOKEN = os.getenv("BOT_TOKEN", "").strip()
-ADMIN_ID = os.getenv("ADMIN_ID", "").strip()
+REPORT_BOT_TOKEN = os.getenv("REPORT_BOT_TOKEN", "").strip()
+REPORT_ADMIN_ID = os.getenv("REPORT_ADMIN_ID", "").strip()
 SUPPORT_USERNAME = os.getenv("SUPPORT_USERNAME", "").strip()
 
 # Increase this number whenever the bot is updated.
@@ -1778,7 +1780,7 @@ async def create_report(reporter, reported, context):
                 f"{message['text']}\n"
             )
 
-    if ADMIN_ID:
+    if REPORT_BOT_TOKEN and REPORT_ADMIN_ID:
 
         try:
 
@@ -1802,13 +1804,19 @@ async def create_report(reporter, reported, context):
                 f"Reported ID: <code>{reported_user['nektome_id']}</code>"
             )
 
-            await context.bot.send_document(
-                chat_id=int(ADMIN_ID),
-                document=open(filename, "rb"),
-                caption=caption,
-                parse_mode="HTML",
-                reply_markup=buttons
-            )
+            report_bot = Bot(token=REPORT_BOT_TOKEN)
+
+            try:
+                with open(filename, "rb") as report_file:
+                    await report_bot.send_document(
+                        chat_id=int(REPORT_ADMIN_ID),
+                        document=report_file,
+                        caption=caption,
+                        parse_mode="HTML",
+                        reply_markup=buttons
+                    )
+            finally:
+                await report_bot.shutdown()
 
         except Exception as e:
             logger.error(
