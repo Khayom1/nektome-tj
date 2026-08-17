@@ -147,6 +147,8 @@ GENDER_ALL = "ALL"
 
 AGE_ALL = "ALL"
 AGE_MINOR = "MINOR"
+AGE_17_20 = "17_20"
+AGE_21_25 = "21_25"
 AGE_ADULT = "ADULT"
 
 # ============================================================
@@ -223,8 +225,16 @@ def gender_text(gender):
 def age_filter_text(value):
     if value == AGE_MINOR:
         return "13–16"
+
+    if value == AGE_17_20:
+        return "17–20"
+
+    if value == AGE_21_25:
+        return "21–25"
+
     if value == AGE_ADULT:
-        return "17+"
+        return "26+"
+
     return "Ҳама"
 
 
@@ -232,8 +242,14 @@ def age_matches(age, age_filter):
     if age_filter == AGE_MINOR:
         return 13 <= age <= 16
 
+    if age_filter == AGE_17_20:
+        return 17 <= age <= 20
+
+    if age_filter == AGE_21_25:
+        return 21 <= age <= 25
+
     if age_filter == AGE_ADULT:
-        return age >= 17
+        return age >= 26
 
     return True
 
@@ -446,12 +462,6 @@ def gender_keyboard():
                 callback_data="gender:F"
             ),
         ],
-        [
-            InlineKeyboardButton(
-                "👥 Ҳама",
-                callback_data="gender:ALL"
-            )
-        ],
     ])
 
 
@@ -522,12 +532,6 @@ def age_keyboard():
                 "26+",
                 callback_data="age:26_PLUS"
             ),
-        ],
-        [
-            InlineKeyboardButton(
-                "👥 Ҳама",
-                callback_data="age:ALL"
-            )
         ],
     ])
 
@@ -730,6 +734,10 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     tg_id = str(update.effective_user.id)
 
+    # --------------------------------------------------------
+    # BLOCKED USER
+    # --------------------------------------------------------
+
     if is_user_blocked(tg_id):
 
         await update.message.reply_text(
@@ -741,10 +749,46 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
         return
 
+    # --------------------------------------------------------
+    # ACTIVE CHAT
+    # --------------------------------------------------------
+
+    if tg_id in active_chats:
+
+        await update.message.reply_text(
+            "💬 <b>Шумо ҳоло дар чат ҳастед.</b>\n\n"
+            "Барои анҷом додани чат тугмаи поёнро истифода баред.",
+            parse_mode="HTML",
+            reply_markup=chat_keyboard()
+        )
+        return
+
+    # --------------------------------------------------------
+    # ACTIVE SEARCH
+    # --------------------------------------------------------
+
+    if tg_id in waiting_users:
+
+        await update.message.reply_text(
+            "🔎 <b>Шумо ҳоло дар ҷустуҷӯи ҳамсӯҳбат ҳастед.</b>\n\n"
+            "Барои қатъ кардани ҷустуҷӯ тугмаи поёнро истифода баред.",
+            parse_mode="HTML",
+            reply_markup=search_keyboard()
+        )
+        return
+
+    # --------------------------------------------------------
+    # EXISTING PROFILE
+    # --------------------------------------------------------
+
     user = get_user(tg_id)
 
     if user:
 
+        # Remove stale registration/search state.
+        context.user_data.clear()
+
+        # Replace any old keyboard with the main menu.
         await update.message.reply_text(
             "👋 Хуш омадед ба <b>Nektome TJ</b>!",
             parse_mode="HTML",
@@ -752,7 +796,17 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
         return
 
+    # --------------------------------------------------------
+    # NEW USER / REGISTRATION
+    # --------------------------------------------------------
+
     context.user_data.clear()
+
+    # Remove any stale ReplyKeyboard from previous bot state.
+    await update.message.reply_text(
+        "🔄",
+        reply_markup=ReplyKeyboardRemove()
+    )
 
     await update.message.reply_text(
         "🔥 <b>Хуш омадед ба Nektome TJ</b>\n\n"
@@ -787,10 +841,10 @@ async def registration_age(update: Update, context):
     elif data == "26_PLUS":
         context.user_data["age_range"] = (26, 80)
 
-    elif data == "ALL":
+    else:
         await query.edit_message_text(
-            "❗ Барои профил синну соли дақиқ лозим аст.\n\n"
-            "Яке аз диапазонҳоро интихоб кунед:",
+            "❌ Интихоби синну сол нодуруст аст.\n\n"
+            "Лутфан яке аз диапазонҳои иҷозатдодашударо интихоб кунед:",
             reply_markup=age_keyboard()
         )
         return
@@ -853,9 +907,72 @@ async def registration_gender(update, context):
 
     gender = query.data.replace("gender:", "")
 
+    # Registration profile can only be Male or Female.
+    # ALL is reserved for search preferences.
+    if gender not in (
+        GENDER_MALE,
+        GENDER_FEMALE
+    ):
+        await query.edit_message_text(
+            "❌ Интихоби ҷинс нодуруст аст.\n\n"
+            "Лутфан танҳо Мард ё Занро интихоб кунед.",
+            reply_markup=gender_keyboard()
+        )
+        return
+
+    # --------------------------------------------------------
+    # FINAL REGISTRATION STATE VALIDATION
+    # --------------------------------------------------------
+
+    age = context.user_data.get("age")
+    age_range = context.user_data.get("age_range")
+
+    if age is None or age_range is None:
+        context.user_data.clear()
+
+        await query.edit_message_text(
+            "❌ Маълумоти регистрация пурра нест.\n\n"
+            "Лутфан аз нав /start кунед."
+        )
+        return
+
+    if not isinstance(age, int):
+        context.user_data.clear()
+
+        await query.edit_message_text(
+            "❌ Синну сол нодуруст аст.\n\n"
+            "Лутфан аз нав /start кунед."
+        )
+        return
+
+    if age < age_range[0] or age > age_range[1]:
+        context.user_data.clear()
+
+        await query.edit_message_text(
+            "❌ Синну сол ба диапазони интихобшуда мувофиқат намекунад.\n\n"
+            "Лутфан аз нав /start кунед."
+        )
+        return
+
     context.user_data["gender"] = gender
 
     tg_id = str(update.effective_user.id)
+
+    # Never create a duplicate profile.
+    if get_user(tg_id):
+        context.user_data.clear()
+
+        await query.edit_message_text(
+            "ℹ️ Профили шумо аллакай вуҷуд дорад."
+        )
+
+        await context.bot.send_message(
+            chat_id=tg_id,
+            text="🏠 <b>Менюи асосӣ</b>",
+            parse_mode="HTML",
+            reply_markup=main_keyboard()
+        )
+        return
     nektome_id = generate_nektome_id()
 
     db_exec(
@@ -937,7 +1054,7 @@ async def find_chat_start(update: Update, context):
         await update.message.reply_text(
             "🔎 Шумо аллакай дар ҷустуҷӯ ҳастед.\n\n"
             "Барои бекор кардан тугмаи поёнро пахш кунед.",
-            reply_markup=search_inline_keyboard()
+            reply_markup=search_keyboard()
         )
         return
 
@@ -983,7 +1100,7 @@ async def find_chat_start(update: Update, context):
         f"🎂 Синну сол: {age_filter_text(age_filter)}\n\n"
         "⏳ Лутфан каме интизор шавед.",
         parse_mode="HTML",
-        reply_markup=search_inline_keyboard()
+        reply_markup=search_keyboard()
     )
 
     await try_match(tg_id, context)
@@ -1057,28 +1174,133 @@ async def find_age(update, context):
 
 def can_match(user_a, pref_a, user_b, pref_b):
 
+    # --------------------------------------------------------
+    # BASIC VALIDATION
+    # --------------------------------------------------------
+
+    user_a = str(user_a)
+    user_b = str(user_b)
+
     if user_a == user_b:
         return False
+
+    if not isinstance(pref_a, dict) or not isinstance(pref_b, dict):
+        return False
+
+    # --------------------------------------------------------
+    # LOAD PROFILES SAFELY
+    # --------------------------------------------------------
+
+    profile_a = get_user(user_a)
+    profile_b = get_user(user_b)
+
+    if profile_a is None or profile_b is None:
+        logger.warning(
+            "MATCH PROFILE MISSING: A=%s exists=%s | B=%s exists=%s",
+            user_a,
+            profile_a is not None,
+            user_b,
+            profile_b is not None
+        )
+        return False
+
+    # --------------------------------------------------------
+    # BLOCK CHECK
+    # --------------------------------------------------------
 
     if is_blocked(user_a, user_b):
         return False
 
-    a_gender = get_user(user_a)["gender"]
-    b_gender = get_user(user_b)["gender"]
+    # --------------------------------------------------------
+    # SEARCH PREFERENCES
+    # --------------------------------------------------------
 
-    a_age = get_user(user_a)["age"]
-    b_age = get_user(user_b)["age"]
+    wanted_gender_a = pref_a.get("gender", GENDER_ALL)
+    wanted_gender_b = pref_b.get("gender", GENDER_ALL)
 
-    if not gender_matches(b_gender, pref_a["gender"]):
+    wanted_age_a = pref_a.get("age", AGE_ALL)
+    wanted_age_b = pref_b.get("age", AGE_ALL)
+
+    valid_genders = {
+        GENDER_MALE,
+        GENDER_FEMALE,
+        GENDER_ALL
+    }
+
+    valid_ages = {
+        AGE_MINOR,
+        AGE_17_20,
+        AGE_21_25,
+        AGE_ADULT,
+        AGE_ALL
+    }
+
+    if wanted_gender_a not in valid_genders:
+        logger.warning(
+            "INVALID SEARCH GENDER: user=%s value=%s",
+            user_a,
+            wanted_gender_a
+        )
         return False
 
-    if not gender_matches(a_gender, pref_b["gender"]):
+    if wanted_gender_b not in valid_genders:
+        logger.warning(
+            "INVALID SEARCH GENDER: user=%s value=%s",
+            user_b,
+            wanted_gender_b
+        )
         return False
 
-    if not age_matches(b_age, pref_a["age"]):
+    if wanted_age_a not in valid_ages:
+        logger.warning(
+            "INVALID SEARCH AGE: user=%s value=%s",
+            user_a,
+            wanted_age_a
+        )
         return False
 
-    if not age_matches(a_age, pref_b["age"]):
+    if wanted_age_b not in valid_ages:
+        logger.warning(
+            "INVALID SEARCH AGE: user=%s value=%s",
+            user_b,
+            wanted_age_b
+        )
+        return False
+
+    # --------------------------------------------------------
+    # MUTUAL GENDER MATCH
+    # --------------------------------------------------------
+
+    # A accepts B.
+    if not gender_matches(
+        profile_b["gender"],
+        wanted_gender_a
+    ):
+        return False
+
+    # B accepts A.
+    if not gender_matches(
+        profile_a["gender"],
+        wanted_gender_b
+    ):
+        return False
+
+    # --------------------------------------------------------
+    # MUTUAL AGE MATCH
+    # --------------------------------------------------------
+
+    # A accepts B.
+    if not age_matches(
+        profile_b["age"],
+        wanted_age_a
+    ):
+        return False
+
+    # B accepts A.
+    if not age_matches(
+        profile_a["age"],
+        wanted_age_b
+    ):
         return False
 
     return True
@@ -1086,23 +1308,72 @@ def can_match(user_a, pref_a, user_b, pref_b):
 
 async def try_match(user_id, context):
 
-    if user_id not in waiting_users:
-        return
+    user_id = str(user_id)
 
-    my_pref = waiting_users[user_id]
+    # --------------------------------------------------------
+    # BASIC STATE CHECK
+    # --------------------------------------------------------
+
+    if user_id not in waiting_users:
+        return False
+
+    # A user already connected must never remain in the queue.
+    if user_id in active_chats:
+        waiting_users.pop(user_id, None)
+        logger.warning(
+            "MATCH CLEANUP: active user found in queue: %s",
+            user_id
+        )
+        return False
+
+    my_pref = waiting_users.get(user_id)
+
+    if not isinstance(my_pref, dict):
+        waiting_users.pop(user_id, None)
+        logger.warning(
+            "MATCH CLEANUP: invalid preferences for user=%s",
+            user_id
+        )
+        return False
+
+    # --------------------------------------------------------
+    # BUILD CANDIDATE LIST
+    # --------------------------------------------------------
 
     candidates = list(waiting_users.keys())
     random.shuffle(candidates)
 
     for candidate in candidates:
 
+        candidate = str(candidate)
+
         if candidate == user_id:
             continue
 
+        # Candidate may have been matched/cancelled meanwhile.
         if candidate not in waiting_users:
             continue
 
-        other_pref = waiting_users[candidate]
+        # Candidate must not already be in a chat.
+        if candidate in active_chats:
+            waiting_users.pop(candidate, None)
+
+            logger.warning(
+                "MATCH CLEANUP: active candidate removed from queue: %s",
+                candidate
+            )
+            continue
+
+        other_pref = waiting_users.get(candidate)
+
+        if not isinstance(other_pref, dict):
+            waiting_users.pop(candidate, None)
+
+            logger.warning(
+                "MATCH CLEANUP: invalid preferences for candidate=%s",
+                candidate
+            )
+            continue
 
         logger.info(
             "MATCH CHECK: %s vs %s | my=%s other=%s",
@@ -1111,6 +1382,10 @@ async def try_match(user_id, context):
             my_pref,
             other_pref
         )
+
+        # ----------------------------------------------------
+        # MUTUAL MATCH CHECK
+        # ----------------------------------------------------
 
         if not can_match(
             user_id,
@@ -1125,35 +1400,103 @@ async def try_match(user_id, context):
             )
             continue
 
+        # ----------------------------------------------------
+        # FINAL STATE CHECK
+        # ----------------------------------------------------
+        # Both users must still be waiting at the exact moment
+        # the match is created.
+
+        if user_id not in waiting_users:
+            return False
+
+        if candidate not in waiting_users:
+            continue
+
+        if user_id in active_chats or candidate in active_chats:
+            continue
+
         logger.info(
             "MATCH FOUND: %s <-> %s",
             user_id,
             candidate
         )
 
+        # ----------------------------------------------------
+        # REMOVE FROM QUEUE
+        # ----------------------------------------------------
+
         waiting_users.pop(user_id, None)
         waiting_users.pop(candidate, None)
+
+        # ----------------------------------------------------
+        # CREATE CHAT STATE
+        # ----------------------------------------------------
 
         active_chats[user_id] = candidate
         active_chats[candidate] = user_id
 
         key = pair_key(user_id, candidate)
-
         chat_logs[key] = []
 
-        await send_match_message(
+        logger.info(
+            "CHAT CREATED: %s <-> %s | active=%s | waiting=%s",
             user_id,
             candidate,
-            context
+            active_chats,
+            list(waiting_users.keys())
         )
 
-        await send_match_message(
-            candidate,
-            user_id,
-            context
-        )
+        # ----------------------------------------------------
+        # NOTIFY BOTH USERS
+        # ----------------------------------------------------
 
-        return
+        try:
+            await send_match_message(
+                user_id,
+                candidate,
+                context
+            )
+
+            await send_match_message(
+                candidate,
+                user_id,
+                context
+            )
+
+        except Exception as e:
+
+            logger.error(
+                "MATCH NOTIFICATION ERROR: %s <-> %s | %s",
+                user_id,
+                candidate,
+                e,
+                exc_info=True
+            )
+
+            # Clean broken chat state.
+            active_chats.pop(user_id, None)
+            active_chats.pop(candidate, None)
+            chat_logs.pop(key, None)
+
+            # Put both users back into queue only if their
+            # profiles still exist.
+            if get_user(user_id) is not None:
+                waiting_users[user_id] = my_pref
+
+            if get_user(candidate) is not None:
+                waiting_users[candidate] = other_pref
+
+            return False
+
+        return True
+
+    logger.info(
+        "NO MATCH: user=%s waiting=%s",
+        user_id,
+        list(waiting_users.keys())
+    )
+
+    return False
 
 
 async def send_match_message(user_id, partner_id, context):
@@ -1279,13 +1622,19 @@ async def leave_chat(update, context):
         except Exception:
             pass
 
+    # Remove the old chat keyboard immediately.
     await update.message.reply_text(
-        "❌ Чат ба анҷом расид.\n\n"
-        "Шумо метавонед ҳамсӯҳбатро баҳо диҳед:",
+        "❌ Чат ба анҷом расид.",
+        reply_markup=ReplyKeyboardRemove()
+    )
+
+    await update.message.reply_text(
+        "⭐ <b>Ба ҳамсӯҳбат баҳо диҳед:</b>",
+        parse_mode="HTML",
         reply_markup=rating_keyboard()
     )
 
-    # Replace the old chat keyboard with the main menu.
+    # Restore the main menu keyboard.
     await update.message.reply_text(
         "🏠 <b>Менюи асосӣ</b>\n\n"
         "Барои оғоз «👥 Ёфтани ҳамсӯҳбат»-ро пахш кунед.",
@@ -1758,22 +2107,40 @@ async def stop_search(update, context):
 
     user_id = str(update.effective_user.id)
 
-    if user_id in waiting_users:
+    # Remove user from matchmaking queue.
+    was_waiting = user_id in waiting_users
+    waiting_users.pop(user_id, None)
 
-        waiting_users.pop(user_id, None)
+    # Remove temporary search state.
+    context.user_data.pop("find_gender", None)
+    context.user_data.pop("find_age", None)
 
+    logger.info(
+        "SEARCH STOP: user=%s was_waiting=%s waiting=%s",
+        user_id,
+        was_waiting,
+        list(waiting_users.keys())
+    )
+
+    if was_waiting:
         await update.message.reply_text(
-            "❌ Ҷустуҷӯ қатъ карда шуд.",
-            reply_markup=main_keyboard()
+            "❌ <b>Ҷустуҷӯ қатъ карда шуд.</b>",
+            parse_mode="HTML",
+            reply_markup=ReplyKeyboardRemove()
         )
 
+        await update.message.reply_text(
+            "🏠 <b>Менюи асосӣ</b>\n\n"
+            "Барои оғоз «👥 Ёфтани ҳамсӯҳбат»-ро пахш кунед.",
+            parse_mode="HTML",
+            reply_markup=main_keyboard()
+        )
         return
 
     await update.message.reply_text(
         "ℹ️ Шумо ҳоло дар ҷустуҷӯ нестед.",
         reply_markup=main_keyboard()
     )
-
 
 
 # ============================================================
@@ -1785,26 +2152,9 @@ async def stop_search_button(update, context):
     if not update.message:
         return
 
-    user_id = str(update.effective_user.id)
+    # Use the same logic as /stop.
+    await stop_search(update, context)
 
-    # Remove from queue immediately.
-    waiting_users.pop(user_id, None)
-
-    # Clear temporary search state.
-    context.user_data.pop("find_gender", None)
-    context.user_data.pop("find_age", None)
-
-    logger.info(
-        "SEARCH STOPPED: user=%s waiting=%s",
-        user_id,
-        user_id in waiting_users
-    )
-
-    await update.message.reply_text(
-        "❌ <b>Ҷустуҷӯ қатъ карда шуд.</b>",
-        parse_mode="HTML",
-        reply_markup=main_keyboard()
-    )
 
 # ============================================================
 # MAIN MESSAGE ROUTER
@@ -1842,6 +2192,32 @@ async def message_router(update, context):
     # Stop-search must work immediately while user is in queue.
     if text == "❌ Қатъ кардани ҷустуҷӯ":
         await stop_search(update, context)
+        return
+
+    # --------------------------------------------------------
+    # STALE CHAT BUTTON PROTECTION
+    # --------------------------------------------------------
+    # "❌ Баромадан аз чат" is valid only during an active chat.
+    # If an old keyboard remains after restart/registration,
+    # remove it instead of silently ignoring the message.
+
+    if text == "❌ Баромадан аз чат" and user_id not in active_chats:
+
+        # During registration, do not show the main menu yet.
+        if (
+            context.user_data.get("registration")
+            or context.user_data.get("registration_age_range")
+        ):
+            await update.message.reply_text(
+                "ℹ️ Шумо ҳоло дар марҳилаи сохтани профил ҳастед.",
+                reply_markup=ReplyKeyboardRemove()
+            )
+            return
+
+        await update.message.reply_text(
+            "ℹ️ Шумо ҳоло дар чат нестед.",
+            reply_markup=main_keyboard()
+        )
         return
 
     # Chat messages have priority
@@ -2006,31 +2382,86 @@ def main():
         CommandHandler("stop", stop_search)
     )
 
-    # Dedicated stop-search button.
-    # Must run before registration and normal message routers.
-    app.add_handler(
-        MessageHandler(
-            filters.Regex(r"^❌ Қатъ кардани ҷустуҷӯ$"),
-            stop_search_button
-        ),
-        group=0
-    )
+    # ========================================================
+    # SINGLE TEXT ROUTER
+    # ========================================================
+    # All ordinary text messages go through one router.
+    # This prevents registration/settings/chat handlers
+    # from competing with each other.
 
-    # Text
+    async def global_text_router(update, context):
+
+        if not update.message or not update.message.text:
+            return
+
+        user_id = str(update.effective_user.id)
+        text = update.message.text.strip()
+
+        logger.info(
+            "TEXT ROUTER: user=%s text=%r active=%s waiting=%s",
+            user_id,
+            text,
+            user_id in active_chats,
+            user_id in waiting_users
+        )
+
+        # ----------------------------------------------------
+        # 1. STOP SEARCH BUTTON
+        # ----------------------------------------------------
+
+        if text == "❌ Қатъ кардани ҷустуҷӯ":
+            await stop_search_button(update, context)
+            return
+
+        # ----------------------------------------------------
+        # 2. LEAVE CHAT BUTTON
+        # ----------------------------------------------------
+
+        if text == "❌ Баромадан аз чат":
+            if user_id in active_chats:
+                await leave_chat(update, context)
+            else:
+                await update.message.reply_text(
+                    "ℹ️ Шумо ҳоло дар чат нестед.",
+                    reply_markup=main_keyboard()
+                )
+            return
+
+        # ----------------------------------------------------
+        # 3. SETTINGS PROFILE AGE
+        # ----------------------------------------------------
+
+        if context.user_data.get("settings_profile"):
+            handled = await settings_profile_age_text(
+                update,
+                context
+            )
+
+            if handled:
+                return
+
+        # ----------------------------------------------------
+        # 4. REGISTRATION AGE
+        # ----------------------------------------------------
+
+        if context.user_data.get("registration_age_range"):
+            await registration_age_text(
+                update,
+                context
+            )
+            return
+
+        # ----------------------------------------------------
+        # 5. EVERYTHING ELSE
+        # ----------------------------------------------------
+
+        await message_router(update, context)
+
     app.add_handler(
         MessageHandler(
             filters.TEXT & ~filters.COMMAND,
-            registration_age_text
-        ),
-        group=1
-    )
-
-    app.add_handler(
-        MessageHandler(
-            filters.TEXT & ~filters.COMMAND,
-            message_router
-        ),
-        group=2
+            global_text_router
+        )
     )
 
     app.add_error_handler(error_handler)
