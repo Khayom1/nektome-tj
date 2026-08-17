@@ -1060,52 +1060,16 @@ async def find_chat_start(update: Update, context):
         )
         return
 
-    pref = get_saved_search(tg_id)
-
-    # If no preference exists yet, keep ALL / ALL as the default.
-    if not db_one(
-        "SELECT 1 FROM search_preferences WHERE telegram_id=?",
-        (tg_id,)
-    ):
-        save_search_settings(
-            tg_id,
-            GENDER_ALL,
-            AGE_ALL
-        )
-        pref = {
-            "gender": GENDER_ALL,
-            "age": AGE_ALL
-        }
-
-    gender_filter = pref["gender"]
-    age_filter = pref["age"]
-
-    waiting_users[tg_id] = {
-        "gender": gender_filter,
-        "age": age_filter
-    }
-
-    context.user_data["find_gender"] = gender_filter
-    context.user_data["find_age"] = age_filter
-
-    logger.info(
-        "QUEUE ENTER SAVED: user=%s gender=%s age=%s waiting=%s",
-        tg_id,
-        gender_filter,
-        age_filter,
-        list(waiting_users.keys())
-    )
+    # Start a NEW search.
+    # Do not reuse the previous gender/age selection.
+    context.user_data.pop("find_gender", None)
+    context.user_data.pop("find_age", None)
 
     await update.message.reply_text(
-        "🔎 <b>Ҳамсӯҳбат ҷустуҷӯ мешавад...</b>\n\n"
-        f"👤 Ҷинс: {gender_text(gender_filter)}\n"
-        f"🎂 Синну сол: {age_filter_text(age_filter)}\n\n"
-        "⏳ Лутфан каме интизор шавед.",
+        "👤 <b>Ҷинси ҳамсӯҳбатро интихоб кунед:</b>",
         parse_mode="HTML",
-        reply_markup=search_keyboard()
+        reply_markup=find_gender_keyboard()
     )
-
-    await try_match(tg_id, context)
 
 
 async def find_gender(update, context):
