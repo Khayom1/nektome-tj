@@ -1141,6 +1141,14 @@ async def find_age(update, context):
 
     age_filter = data
 
+    # Save the CURRENT search preferences.
+    # Otherwise find_chat_start() may reuse an old gender/age filter.
+    save_search_settings(
+        tg_id,
+        gender_filter,
+        age_filter
+    )
+
     waiting_users[tg_id] = {
         "gender": gender_filter,
         "age": age_filter,
@@ -1156,7 +1164,9 @@ async def find_age(update, context):
 
     await query.edit_message_text(
         "🔎 <b>Ҳамсӯҳбат ҷустуҷӯ мешавад...</b>\n\n"
-        "Лутфан каме интизор шавед.",
+        f"👤 Ҷинс: {gender_text(gender_filter)}\n"
+        f"🎂 Синну сол: {age_filter_text(age_filter)}\n\n"
+        "⏳ Лутфан каме интизор шавед.",
         parse_mode="HTML"
     )
 
